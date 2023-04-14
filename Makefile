@@ -7,7 +7,7 @@ CXX = sst++
 MPICXX = sst++
 
 # use -xmic-avx512 instead of -xHost for Intel Xeon Phi platforms
-OPTFLAGS = -O3 -DPRINT_DIST_STATS -DPRINT_EXTRA_NEDGES
+OPTFLAGS = -O3 -DPRINT_DIST_STATS -DPRINT_EXTRA_NEDGES -DUSE_ALLREDUCE_FOR_EXIT
 # -DPRINT_EXTRA_NEDGES prints extra edges when -p <> is passed to 
 #  add extra edges randomly on a generated graph
 # use export ASAN_OPTIONS=verbosity=1 to check ASAN output
