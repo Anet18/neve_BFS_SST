@@ -1145,7 +1145,7 @@ class Graph
         }
 
         // Rank order
-        void rank_order() const
+        void rank_order(DegreeOrder order=none) const
         {
             std::vector<GraphElem> nbr_pes;
 	          std::string outfile = "NEVE_MPI_RANK_ORDER." + std::to_string(size_); 
@@ -1168,6 +1168,8 @@ class Graph
                     }
                 }
             }
+
+            nbr_pes.insert(nbr_pes.begin(), rank_);
 
             GraphElem nbr_pes_size = nbr_pes.size(), snbr_pes_size = 0;
             MPI_Reduce(&nbr_pes_size, &snbr_pes_size, 1, MPI_GRAPH_TYPE, MPI_SUM, 0, comm_);
@@ -1198,28 +1200,46 @@ class Graph
             }
 
             MPI_Barrier(comm_);
-#if 0
+
             MPI_Gatherv(nbr_pes.data(), nbr_pes_size, MPI_GRAPH_TYPE, 
                     pe_list.data(), rcounts.data(), rdispls.data(), 
                     MPI_GRAPH_TYPE, 0, comm_);
-#endif
-            MPI_Send(nbr_pes.data(), nbr_pes_size, MPI_GRAPH_TYPE, 0, 100, comm_);
 
             if (rank_ == 0)
             {
-              for (int i = 0; i < size_; i++)
-                MPI_Recv(pe_list.data() + rdispls[i], rcounts[i], 
-                    MPI_GRAPH_TYPE, i, 100, comm_, MPI_STATUS_IGNORE);
-            }
-
-            if (rank_ == 0)
-            {
-                for (GraphElem x = 0; x < pe_list.size(); x++)
+                if (order == none)
                 {
-                    if (pe_map[pe_list[x]] == 0)
+                    for (GraphElem x = 0; x < pe_list.size(); x++)
                     {
-                        pe_map[pe_list[x]] = 1;
-                        pe_list_nodup.push_back(pe_list[x]);
+                        if (pe_map[pe_list[x]] == 0)
+                        {
+                            pe_map[pe_list[x]] = 1;
+                            pe_list_nodup.push_back(pe_list[x]);
+                        }
+                    }
+                }
+                else
+                {
+                    std::vector<int> idx(rcounts.size());
+                    std::iota(idx.begin(), idx.end(), 0);
+
+                    if (order == ascending)
+                        std::stable_sort(idx.begin(), idx.end(), sort_indices<int>(rcounts.data()));
+                    else if (order == descending)
+                    {
+                        std::stable_sort(idx.begin(), idx.end(),
+                                [&rcounts](int i1, int i2) {return rcounts[i1] > rcounts[i2];});
+                    }
+                    else
+                        std::stable_sort(idx.begin(), idx.end(), sort_indices<int>(rcounts.data()));
+
+                    for (auto x : idx)
+                    {
+                        if (pe_map[pe_list[x]] == 0)
+                        {
+                            pe_map[pe_list[x]] = 1;
+                            pe_list_nodup.push_back(pe_list[x]);
+                        }
                     }
                 }
 
@@ -1258,7 +1278,7 @@ class Graph
             rdispls.clear();
         }
         
-	      void weighted_rank_order() const
+	void weighted_rank_order(DegreeOrder order=none) const
         {
             std::vector<GraphElem> nbr_pes;
             std::vector<GraphElem> ng_pes, index;
@@ -1284,6 +1304,8 @@ class Graph
                 }
             }
              
+            nbr_pes.insert(nbr_pes.begin(), rank_);
+            
             GraphElem nbr_pes_size = nbr_pes.size(), snbr_pes_size = 0;
             MPI_Reduce(&nbr_pes_size, &snbr_pes_size, 1, MPI_GRAPH_TYPE, MPI_SUM, 0, comm_);
 
@@ -1305,7 +1327,7 @@ class Graph
                 }
             }
 
-	          std::sort(nbr_pes.begin(), nbr_pes.end(), sort_indices(ng_pes.data()));
+	    std::sort(nbr_pes.begin()+1, nbr_pes.end(), sort_indices<GraphElem>(ng_pes.data()));
 
             std::vector<GraphElem> pe_list, pe_map, pe_list_nodup, pe_idx;
             std::vector<int> rcounts, rdispls;
@@ -1333,27 +1355,46 @@ class Graph
             }
 
             MPI_Barrier(comm_);
-#if 0
+
             MPI_Gatherv(nbr_pes.data(), nbr_pes_size, MPI_GRAPH_TYPE, 
                     pe_list.data(), rcounts.data(), rdispls.data(), 
                     MPI_GRAPH_TYPE, 0, comm_);
-#endif
-              MPI_Send(nbr_pes.data(), nbr_pes_size, MPI_GRAPH_TYPE, 0, 100, comm_);
-
-            if (rank_ == 0)
+            
+	    if (rank_ == 0)
             {
-              for (int i = 0; i < size_; i++)
-                MPI_Recv(pe_list.data() + rdispls[i], rcounts[i], 
-                    MPI_GRAPH_TYPE, i, 100, comm_, MPI_STATUS_IGNORE);
-            }       
-	          if (rank_ == 0)
-            {
-                for (GraphElem x = 0; x < pe_list.size(); x++)
+                if (order == none)
                 {
-                    if (pe_map[pe_list[x]] == 0)
+                    for (GraphElem x = 0; x < pe_list.size(); x++)
                     {
-                        pe_map[pe_list[x]] = 1;
-                        pe_list_nodup.push_back(pe_list[x]);
+                        if (pe_map[pe_list[x]] == 0)
+                        {
+                            pe_map[pe_list[x]] = 1;
+                            pe_list_nodup.push_back(pe_list[x]);
+                        }
+                    }
+                }
+                else
+                {
+                    std::vector<int> idx(rcounts.size());
+                    std::iota(idx.begin(), idx.end(), 0);
+
+                    if (order == ascending)
+                        std::stable_sort(idx.begin(), idx.end(), sort_indices<int>(rcounts.data()));
+                    else if (order == descending)
+                    {
+                        std::stable_sort(idx.begin(), idx.end(),
+                                [&rcounts](int i1, int i2) {return rcounts[i1] > rcounts[i2];});
+                    }
+                    else
+                        std::stable_sort(idx.begin(), idx.end(), sort_indices<int>(rcounts.data()));
+
+                    for (auto x : idx)
+                    {
+                        if (pe_map[pe_list[x]] == 0)
+                        {
+                            pe_map[pe_list[x]] = 1;
+                            pe_list_nodup.push_back(pe_list[x]);
+                        }
                     }
                 }
                 
@@ -1626,8 +1667,8 @@ class BinaryEdgeList
             std::string str = tmp_str.str();
             //MPI_Info_set(info, "cb_nodes", str.c_str());
 
-            //file_open_error = MPI_File_open(comm_, file.c_str(), MPI_MODE_RDONLY, info, &fh);
-             fh1 = open(file.c_str(),O_RDONLY); 
+            //file_open_error = MPI_File_open(comm_, file.c_str(), MPI_MODE_RDONLY, info, &fh); 
+            fh1 = open(file.c_str(),O_RDONLY);
             //MPI_Info_free(&info);
             //#else
             //file_open_error = MPI_File_open(comm_, file.c_str(), MPI_MODE_RDONLY, MPI_INFO_NULL, &fh); 
@@ -1661,7 +1702,7 @@ class BinaryEdgeList
             
             if (tot_bytes < INT_MAX){
                 //MPI_File_read_at(fh, offset, &g->edge_indices_[0], tot_bytes, MPI_BYTE, &status);
-                ssize_t sz2 = pread(fh1,&g->edge_indices_[0],tot_bytes,offset);  
+                ssize_t sz2 = pread(fh1,&g->edge_indices_[0],tot_bytes,offset);
             }
             else 
             {
@@ -1690,7 +1731,7 @@ class BinaryEdgeList
 
             if (tot_bytes < INT_MAX){
                 //MPI_File_read_at(fh, offset, &g->edge_list_[0], tot_bytes, MPI_BYTE, &status);
-                ssize_t sz4 = pread(fh1,&g->edge_list_[0],tot_bytes,offset);  
+                ssize_t sz4 = pread(fh1,&g->edge_list_[0],tot_bytes,offset); 
             }
             else 
             {
@@ -1816,11 +1857,12 @@ class BinaryEdgeList
                 MPI_Abort(comm_, -99);
             }
 
+
             // read the dimensions 
             //MPI_File_read_all(fh, &M_, sizeof(GraphElem), MPI_BYTE, &status);
             //MPI_File_read_all(fh, &N_, sizeof(GraphElem), MPI_BYTE, &status);
             ssize_t sz = read(fh1,&M_,sizeof(GraphElem));
-              ssize_t sz1 = read(fh1,&N_,sizeof(GraphElem));
+            ssize_t sz1 = read(fh1,&N_,sizeof(GraphElem));
             M_local_ = mbins[me+1] - mbins[me];
 
             // create local graph
@@ -1833,9 +1875,9 @@ class BinaryEdgeList
 
             // read in INT_MAX increments if total byte size is > INT_MAX
             if (tot_bytes < INT_MAX){
-               // MPI_File_read_at(fh, offset, &g->edge_indices_[0], tot_bytes, MPI_BYTE, &status);
-               ssize_t sz2 = pread(fh1,&g->edge_indices_[0],tot_bytes,offset);
-           }
+                //MPI_File_read_at(fh, offset, &g->edge_indices_[0], tot_bytes, MPI_BYTE, &status);
+                ssize_t sz2 = pread(fh1,&g->edge_indices_[0],tot_bytes,offset);
+            }
             else 
             {
                 int chunk_bytes=INT_MAX;

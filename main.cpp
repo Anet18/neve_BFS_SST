@@ -76,6 +76,7 @@ static bool performWorkSum = false;
 static bool performLTTestNbrAlltoAll = false;
 static bool performLTTestNbrAllGather = false;
 static bool createRankOrder = false;
+static bool performBFS = false;
 static int rankOrderType = 0;
 
 static bool chooseSingleNbr = false;
@@ -150,9 +151,17 @@ int main(int argc, char **argv)
     {
         t0 = MPI_Wtime();
         if (rankOrderType == 1)
-            g->rank_order();
+            g->rank_order(none);
         else if (rankOrderType == 2)
-            g->weighted_rank_order();
+            g->weighted_rank_order(none);
+        else if (rankOrderType == 3)
+            g->rank_order(ascending);
+        else if (rankOrderType == 4)
+            g->rank_order(descending);
+        else if (rankOrderType == 5)
+            g->weighted_rank_order(ascending);
+        else if (rankOrderType == 6)
+            g->weighted_rank_order(descending);
         else
             g->matching_rank_order();
         t1 = MPI_Wtime() - t0;
@@ -179,6 +188,13 @@ int main(int argc, char **argv)
             std::cout << "Time to generate distributed graph of " 
                 << nvRGG << " vertices (in s): " << tdt << std::endl;
     }
+
+
+    if (performBFS)
+    {
+        BFS b(g);
+        b.run_test();
+    }
     
     if (performBWTest || performLTTest || performLTTestNbrAlltoAll || performLTTestNbrAllGather)
     {
@@ -190,7 +206,12 @@ int main(int argc, char **argv)
         if (minSizeExchange == 0)
             minSizeExchange = MIN_SIZE;
 
-        Comm c(g, minSizeExchange, maxSizeExchange, graphShrinkPercent);
+        Comm *c = nullptr;
+
+        if (performBWTest)
+            c = new Comm(g, minSizeExchange, maxSizeExchange, graphShrinkPercent);
+        else
+            c = new Comm(g, minSizeExchange, maxSizeExchange);
 
         MPI_Barrier(MPI_COMM_WORLD);
 
@@ -207,16 +228,16 @@ int main(int argc, char **argv)
                         << " for bandwidth test." << std::endl;
                 }
                 if (maxNumGhosts > 0)
-                    c.p2p_bw_snbr(processNbr, maxNumGhosts);
+                    c->p2p_bw_snbr(processNbr, maxNumGhosts);
                 else
-                    c.p2p_bw_snbr(processNbr);
+                    c->p2p_bw_snbr(processNbr);
             }
             else
             {
                 if (hardSkip)
-                    c.p2p_bw_hardskip();
+                    c->p2p_bw_hardskip();
                 else
-                    c.p2p_bw();
+                    c->p2p_bw();
             }
         }
 
@@ -232,26 +253,26 @@ int main(int argc, char **argv)
                         std::cout << "Choosing the neighborhood of process #" << processNbr 
                             << " for latency test." << std::endl;
                     }
-                    c.p2p_lt_snbr(processNbr);
+                    c->p2p_lt_snbr(processNbr);
                 }
                 else {
                     if (fallAsleep) {
                         if (me == 0)
                             std::cout << "Invoking (u)sleep for an epoch equal to #locally-owned-vertices" << std::endl;
-                        c.p2p_lt_usleep();
+                        c->p2p_lt_usleep();
                     }
                     else if (performWorkSum) {
                         if (me == 0)
                             std::cout << "Invoking work performing degree sum for #locally-owned-vertices" << std::endl;
-                        c.p2p_lt_worksum();
+                        c->p2p_lt_worksum();
                     }
                     else if (performWorkMax) {
                         if (me == 0)
                             std::cout << "Invoking work performing degree max for #locally-owned-vertices" << std::endl;
-                        c.p2p_lt_workmax();
+                        c->p2p_lt_workmax();
                     }
                     else
-                        c.p2p_lt();
+                        c->p2p_lt();
                 }
             }
 
@@ -264,12 +285,12 @@ int main(int argc, char **argv)
                         std::cout << "Choosing the neighborhood of process #" << processNbr 
                             << " for latency test (using MPI_Isend/Irecv)." << std::endl;
                     }
-                    c.p2p_lt_snbr(processNbr);
+                    c->p2p_lt_snbr(processNbr);
                 }
                 else
                 {
 //#ifndef SSTMAC
-//                    c.nbr_ala_lt();
+//                    c->nbr_ala_lt();
 //#else
 //#warning "SSTMAC is defined: MPI3 neighborhood collectives are turned OFF."
 //#endif
@@ -285,12 +306,12 @@ int main(int argc, char **argv)
                         std::cout << "Choosing the neighborhood of process #" << processNbr 
                             << " for latency test (using MPI_Isend/Irecv)." << std::endl;
                     }
-                    c.p2p_lt_snbr(processNbr);
+                    c->p2p_lt_snbr(processNbr);
                 }
                 else
                 {
 //#ifndef SSTMAC
-//                    c.nbr_aga_lt();
+//                    c->nbr_aga_lt();
 //#else
 //#warning "SSTMAC is defined: MPI3 neighborhood collectives are turned OFF."
 //#endif
@@ -313,8 +334,10 @@ int main(int argc, char **argv)
 //#endif
         }
 
-        c.destroy_nbr_comm();
+        c->destroy_nbr_comm();
+        delete c;
     } // end latency/bandwidth tests
+
 
     MPI_Barrier(MPI_COMM_WORLD);
    
@@ -328,7 +351,7 @@ void parseCommandLine(int argc, char** const argv)
   int ret;
   optind = 1;
 
-  while ((ret = getopt(argc, argv, "f:r:n:lhp:m:x:bg:t:ws:z:ud:o:")) != -1) {
+  while ((ret = getopt(argc, argv, "f:r:n:lhp:m:x:bg:t:ws:z:ud:o:a")) != -1) {
     switch (ret) {
     case 'f':
       inputFileName.assign(optarg);
@@ -397,6 +420,9 @@ void parseCommandLine(int argc, char** const argv)
     case 'o':
       rankOrderType = atoi(optarg);
       createRankOrder = true;
+      break;
+    case 'a':
+      performBFS = true;
       break;
     default:
       assert(0 && "Should not reach here!!");
